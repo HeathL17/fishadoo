@@ -338,14 +338,17 @@ az role assignment create \
   --role Contributor \
   --scope "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/fishadoo-rg"
 
-# 4. Add a federated credential for the main branch
-TENANT_ID=$(az account show --query tenantId -o tsv)
-az ad app federated-credential create --id "$APP_ID" --parameters '{
-  "name": "fishadoo-main",
+# 4. Add a federated credential for the production environment
+#    Write to a file to avoid shell JSON-parsing issues on macOS
+cat > /tmp/fishadoo-fedcred.json << 'EOF'
+{
+  "name": "fishadoo-production",
   "issuer": "https://token.actions.githubusercontent.com",
-  "subject": "repo:<your-github-username>/<your-repo-name>:ref:refs/heads/main",
+  "subject": "repo:<your-github-username>/<your-repo-name>:environment:production",
   "audiences": ["api://AzureADTokenExchange"]
-}'
+}
+EOF
+az ad app federated-credential create --id "$APP_ID" --parameters /tmp/fishadoo-fedcred.json
 ```
 
 ### Step 3 – Add GitHub secrets and variables
