@@ -187,9 +187,13 @@ cp local.settings.json.example local.settings.json
 
 If you are a first-time contributor, fork the repository on GitHub first.
 
+> **Authentication:** GitHub no longer accepts passwords for `git push`.  Use one of:
+> - **SSH** (recommended): [Generate an SSH key and add it to your GitHub account](https://docs.github.com/en/authentication/connecting-to-github-with-ssh), then clone with `git clone git@github.com:<your-github-username>/fishadoo.git`.
+> - **HTTPS + Personal Access Token (PAT)**: [Create a PAT](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens) and use it in place of your password when prompted (or store it with `git credential-store`).
+
 ```bash
-# Clone your fork (replace <your-github-username> with your GitHub username)
-git clone https://github.com/<your-github-username>/fishadoo.git
+# Clone your fork – SSH (recommended)
+git clone git@github.com:<your-github-username>/fishadoo.git
 cd fishadoo
 
 # Add the upstream remote so you can sync future changes
@@ -204,6 +208,8 @@ git remote add upstream https://github.com/HeathL17/fishadoo.git
 > git merge upstream/main        # fast-forward your local main
 > git push origin main           # push the update to your fork
 > ```
+>
+> Alternatively, use the **Sync fork** button on your fork's GitHub page to sync without the command line.
 
 Work on a dedicated branch rather than directly on `main`:
 
