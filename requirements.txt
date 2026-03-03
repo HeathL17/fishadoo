@@ -1,0 +1,2 @@
+azure-functions==1.21.3
+azure-data-tables==12.6.0

@@ -1,0 +1,12 @@
+{
+  "seed": "fishadoo-default-seed",
+  "string_length": 32,
+  "string_charset": "alphanumeric",
+  "schedule": "0 */10 * * * *",
+  "_comments": {
+    "seed": "A label stored with every record to identify this data source. Change this if you run multiple instances.",
+    "string_length": "Number of characters in each generated random string.",
+    "string_charset": "Character set to use. Options: alphanumeric, alpha, digits, hex, printable.",
+    "schedule": "CRON expression for the timer trigger. Must match the SCHEDULE app setting. Default: every 10 minutes."
+  }
+}
