@@ -1,0 +1,43 @@
+# Azure Functions local settings (contains secrets)
+local.settings.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+*.so
+.venv/
+venv/
+env/
+
+# Testing & coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.DS_Store
+
+# Azure Functions deployment artifacts
+.python_packages/
+bin/
+obj/
+
+# Terraform / Bicep state
+*.tfstate
+*.tfstate.backup
+.terraform/
+
+# Logs
+*.log
