@@ -12,9 +12,15 @@ SCHEDULE
     Set this in ``local.settings.json`` for local development and in the
     Function App configuration blade (or Bicep parameters) for Azure.
 
+TABLE_ACCOUNT_NAME
+    **Preferred in Azure.**  Storage account name.  When set, the function
+    authenticates via ``DefaultAzureCredential`` (managed identity in Azure,
+    ``az login`` locally).  No connection string or shared key is required.
+
 TABLE_CONNECTION_STRING
-    Azure Storage account connection string.  Use
+    **Local development only.**  Azure Storage connection string.  Use
     ``UseDevelopmentStorage=true`` when running against Azurite locally.
+    If ``TABLE_ACCOUNT_NAME`` is set, this variable is ignored.
 
 TABLE_NAME
     Optional.  Name of the Azure Storage table to write to.
