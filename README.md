@@ -1,4 +1,4 @@
-# fishadoo 🎣
+# fishadoo  🎣
 
 A personal data-gathering hub built on Azure Functions and Python.  This is the **v1 foundation** – a timer-triggered function that writes a cryptographically random string to an Azure Storage Table every 10 minutes.  It is intentionally small so you can build on top of it confidently.
 
