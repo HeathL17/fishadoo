@@ -171,20 +171,48 @@ cp local.settings.json.example local.settings.json
 | Setting | Description |
 |---|---|
 | `AzureWebJobsStorage` | Use `UseDevelopmentStorage=true` for Azurite |
-| `TABLE_CONNECTION_STRING` | Same as above for local dev |
+| `TABLE_CONNECTION_STRING` | Use `UseDevelopmentStorage=true` for Azurite (local dev only) |
 | `TABLE_NAME` | Table to write to (created automatically) |
 | `SCHEDULE` | Six-field CRON expression |
 | `APPLICATIONINSIGHTS_CONNECTION_STRING` | Leave blank locally; set in Azure for telemetry |
+
+> **Prefer `TABLE_ACCOUNT_NAME` over `TABLE_CONNECTION_STRING` when connecting to a real Azure Storage account locally.**  Set `TABLE_ACCOUNT_NAME` to your storage account name and authenticate via `az login` – no shared key or connection string needed.  See [Local Development & Testing](#local-development--testing) for details.
 
 ---
 
 ## Local Development & Testing
 
-### Step 1 – Clone and set up a virtual environment
+### Step 1 – Fork and clone the repository
+
+If you are a first-time contributor, fork the repository on GitHub first.
 
 ```bash
-git clone https://github.com/HeathL17/fishadoo.git
+# Clone your fork (replace <your-github-username> with your GitHub username)
+git clone https://github.com/<your-github-username>/fishadoo.git
 cd fishadoo
+
+# Add the upstream remote so you can sync future changes
+git remote add upstream https://github.com/HeathL17/fishadoo.git
+```
+
+> **Already have a clone?**  Keep it up to date before starting new work:
+>
+> ```bash
+> git fetch upstream
+> git checkout main
+> git merge upstream/main        # fast-forward your local main
+> git push origin main           # push the update to your fork
+> ```
+
+Work on a dedicated branch rather than directly on `main`:
+
+```bash
+git checkout -b feature/my-change
+```
+
+### Step 2 – Set up a virtual environment
+
+```bash
 python3 -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt -r requirements-dev.txt
@@ -192,14 +220,14 @@ pip install -r requirements.txt -r requirements-dev.txt
 
 > **macOS note:** If you installed Python via Homebrew (`brew install python@3.11`), use `python3.11` explicitly: `python3.11 -m venv .venv`.
 
-### Step 2 – Copy and edit local settings
+### Step 3 – Copy and edit local settings
 
 ```bash
 cp local.settings.json.example local.settings.json
 # The defaults work for Azurite – no edits needed unless you want to change the schedule.
 ```
 
-### Step 3 – Start the Azurite storage emulator
+### Step 4 – Start the Azurite storage emulator
 
 Open a separate terminal and run:
 
@@ -218,7 +246,7 @@ Azurite listens on:
 - Queue: `http://127.0.0.1:10001`
 - Table: `http://127.0.0.1:10002`
 
-### Step 4 – Start the Azure Functions host
+### Step 5 – Start the Azure Functions host
 
 ```bash
 func start
@@ -231,7 +259,7 @@ Functions:
     random_string_writer: timerTrigger
 ```
 
-### Step 5 – Trigger the function manually
+### Step 6 – Trigger the function manually
 
 To trigger the function without waiting for the timer:
 
@@ -241,7 +269,7 @@ curl -X POST http://localhost:7071/admin/functions/random_string_writer \
      -d '{}'
 ```
 
-### Step 6 – Verify the data was written
+### Step 7 – Verify the data was written
 
 Use [Azure Storage Explorer](https://azure.microsoft.com/products/storage/storage-explorer/) connected to Azurite (`UseDevelopmentStorage=true`) and browse to:
 
@@ -261,6 +289,19 @@ Each row will contain:
 | `charset` | `alphanumeric` |
 | `source` | `random_string_writer` |
 | `created_at` | `2024-01-15T14:30:00.123456+00:00` |
+
+### Optional: connect to a real Azure Storage account locally
+
+Instead of Azurite you can authenticate to a real Azure Storage account using your own identity (no connection string or shared key needed):
+
+```bash
+az login   # sign in once with the Azure CLI
+
+# In local.settings.json, set TABLE_ACCOUNT_NAME and remove TABLE_CONNECTION_STRING:
+#   "TABLE_ACCOUNT_NAME": "<your-storage-account-name>"
+```
+
+`DefaultAzureCredential` will pick up your `az login` session automatically.  Ensure your account has the **Storage Table Data Contributor** role on the storage account.
 
 ---
 
@@ -393,14 +434,16 @@ az storage entity query \
 | `past_due` warning in logs | Function App was scaled down or throttled | Check the Consumption plan quotas; consider Premium plan |
 | Function App not starting | Missing `AzureWebJobsStorage` | Ensure the storage account setting is correct |
 
-### `TABLE_CONNECTION_STRING` not set
+### `TABLE_ACCOUNT_NAME` / `TABLE_CONNECTION_STRING` not set
 
 ```
-Configuration error – function cannot run until this is resolved:
-Environment variable 'TABLE_CONNECTION_STRING' is not set.
+Neither 'TABLE_ACCOUNT_NAME' nor 'TABLE_CONNECTION_STRING' environment variable is set.
 ```
 
-**Fix:** Set `TABLE_CONNECTION_STRING` in the Function App configuration blade **or** ensure Azurite is running and `local.settings.json` contains `UseDevelopmentStorage=true`.
+**Fix:**
+- **Azure (preferred):** Ensure `TABLE_ACCOUNT_NAME` is set in the Function App configuration blade.  The Bicep deployment sets this automatically.  Also verify the managed identity has the **Storage Table Data Contributor** role on the storage account.
+- **Local (Azurite):** Ensure Azurite is running and `local.settings.json` contains `TABLE_CONNECTION_STRING: UseDevelopmentStorage=true`.
+- **Local (real Azure account):** Set `TABLE_ACCOUNT_NAME` in `local.settings.json` and run `az login`.
 
 ### `UseDevelopmentStorage=true` fails with connection refused
 
@@ -450,7 +493,9 @@ Then restart `func start`.
 | Practice | Implementation |
 |---|---|
 | No secrets in source control | `local.settings.json` is in `.gitignore`; use environment variables / app settings |
-| Managed Identity in Azure | Function App accesses Storage via identity, not a shared key |
+| No secrets in app settings (Azure) | Function App uses `TABLE_ACCOUNT_NAME` + managed identity; `TABLE_CONNECTION_STRING` is never stored in Azure app settings |
+| Managed Identity in Azure | Function App accesses Table Storage via its system-assigned managed identity (Storage Table Data Contributor role); no shared keys or connection strings in Azure |
+| `DefaultAzureCredential` in code | Supports managed identity (Azure), `az login` (local real-account dev), and environment credentials transparently |
 | TLS 1.2 minimum | Enforced on Storage Account and Function App in Bicep |
 | HTTPS-only Function App | `httpsOnly: true` in Bicep |
 | No public blob access | `allowBlobPublicAccess: false` on Storage Account |
@@ -469,8 +514,6 @@ This codebase is designed to grow.  Here are suggested next steps:
 
 3. **Add an HTTP-triggered function** – Use `@app.route()` to expose a simple API for querying the table.
 
-4. **Upgrade to Managed Identity for local dev** – Use `DefaultAzureCredential` and `az login` instead of Azurite to test against a real storage account.
+4. **Add alerting** – Create Application Insights alert rules in Bicep to notify on function failures.
 
-5. **Add alerting** – Create Application Insights alert rules in Bicep to notify on function failures.
-
-6. **Switch to Premium plan** – For lower cold-start latency and VNet integration, update the Bicep `sku` from `Y1` to `EP1`.
+5. **Switch to Premium plan** – For lower cold-start latency and VNet integration, update the Bicep `sku` from `Y1` to `EP1`.

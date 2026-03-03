@@ -60,11 +60,13 @@ class TestWriteRandomString:
     def _patch_env(self, monkeypatch, connection_string="UseDevelopmentStorage=true",
                    table_name="TestTable"):
         monkeypatch.setenv("TABLE_CONNECTION_STRING", connection_string)
+        monkeypatch.delenv("TABLE_ACCOUNT_NAME", raising=False)
         monkeypatch.setenv("TABLE_NAME", table_name)
 
     def test_raises_when_connection_string_missing(self, monkeypatch) -> None:
         monkeypatch.delenv("TABLE_CONNECTION_STRING", raising=False)
-        with pytest.raises(ValueError, match="TABLE_CONNECTION_STRING"):
+        monkeypatch.delenv("TABLE_ACCOUNT_NAME", raising=False)
+        with pytest.raises(ValueError, match="TABLE_ACCOUNT_NAME"):
             write_random_string()
 
     @patch("shared.table_writer._get_table_client")
@@ -148,3 +150,28 @@ class TestWriteRandomString:
 
         with pytest.raises(AzureError):
             write_random_string()
+
+    @patch("shared.table_writer.TableServiceClient")
+    @patch("shared.table_writer.DefaultAzureCredential")
+    def test_uses_default_azure_credential_when_account_name_set(
+        self, mock_cred_cls, mock_service_client_cls, monkeypatch
+    ) -> None:
+        """When TABLE_ACCOUNT_NAME is set, DefaultAzureCredential is used (no connection string)."""
+        monkeypatch.setenv("TABLE_ACCOUNT_NAME", "mystorageaccount")
+        monkeypatch.delenv("TABLE_CONNECTION_STRING", raising=False)
+        monkeypatch.setenv("TABLE_NAME", "TestTable")
+
+        mock_cred_cls.return_value = MagicMock()
+        mock_service_client = MagicMock()
+        mock_service_client_cls.return_value = mock_service_client
+        mock_service_client.get_table_client.return_value = MagicMock()
+
+        from shared.table_writer import _get_table_client
+
+        _get_table_client("TestTable")
+
+        # Verify TableServiceClient was called with an endpoint URL, not from_connection_string.
+        mock_service_client_cls.assert_called_once()
+        call_kwargs = mock_service_client_cls.call_args
+        endpoint_arg = call_kwargs.args[0] if call_kwargs.args else call_kwargs.kwargs.get("endpoint")
+        assert endpoint_arg == "https://mystorageaccount.table.core.windows.net"

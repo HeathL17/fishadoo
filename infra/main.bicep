@@ -138,17 +138,14 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
           name: 'SCHEDULE'
           value: schedule
         }
-        // TABLE_CONNECTION_STRING is intentionally absent in production –
-        // the managed identity role assignment below grants access instead.
-        // The function code falls back to managed identity credentials when
-        // this variable is not set.  See shared/table_writer.py for details.
-        //
-        // For simplicity in this initial version, we still accept a
-        // TABLE_CONNECTION_STRING if the operator wants to override.
         {
-          name: 'TABLE_CONNECTION_STRING'
-          value: 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};EndpointSuffix=core.windows.net'
+          name: 'TABLE_ACCOUNT_NAME'
+          value: storageAccount.name
         }
+        // TABLE_CONNECTION_STRING is intentionally absent – the Function App
+        // authenticates to Table Storage via its system-assigned managed identity
+        // (Storage Table Data Contributor role assigned below).  No secrets are
+        // stored in app settings.
       ]
       ftpsState: 'Disabled'
       minTlsVersion: '1.2'
