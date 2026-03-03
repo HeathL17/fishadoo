@@ -93,15 +93,37 @@ fishadoo/
 | Tool | Minimum version | Purpose |
 |---|---|---|
 | Python | 3.11 | Function runtime |
+| [Homebrew](https://brew.sh) | latest | macOS package manager (macOS only) |
 | [Azure Functions Core Tools](https://learn.microsoft.com/azure/azure-functions/functions-run-local) | v4 | Local function host |
 | [Azurite](https://learn.microsoft.com/azure/storage/common/storage-use-azurite) | 3.x | Local Storage emulator |
 | [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) | 2.50+ | Deployment |
 | [Bicep CLI](https://learn.microsoft.com/azure/azure-resource-manager/bicep/install) | 0.24+ | IaC deployment |
 
-Install Azure Functions Core Tools:
+### Installing prerequisites on macOS
+
+Install [Homebrew](https://brew.sh) if you don't have it:
 
 ```bash
-npm install -g azure-functions-core-tools@4 --unsafe-perm true
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+```
+
+Install Python 3.11:
+
+```bash
+brew install python@3.11
+```
+
+Install Azure Functions Core Tools (recommended for macOS):
+
+```bash
+brew tap azure/functions
+brew install azure-functions-core-tools@4
+```
+
+Install Azure CLI:
+
+```bash
+brew install azure-cli
 ```
 
 Install Azurite (local Storage emulator):
@@ -109,6 +131,8 @@ Install Azurite (local Storage emulator):
 ```bash
 npm install -g azurite
 ```
+
+> **Other platforms:** On Linux/Windows use `npm install -g azure-functions-core-tools@4 --unsafe-perm true` for Azure Functions Core Tools, and follow the [Azure CLI install guide](https://learn.microsoft.com/cli/azure/install-azure-cli) for your OS.
 
 ---
 
@@ -161,10 +185,12 @@ cp local.settings.json.example local.settings.json
 ```bash
 git clone https://github.com/HeathL17/fishadoo.git
 cd fishadoo
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt -r requirements-dev.txt
 ```
+
+> **macOS note:** If you installed Python via Homebrew (`brew install python@3.11`), use `python3.11` explicitly: `python3.11 -m venv .venv`.
 
 ### Step 2 – Copy and edit local settings
 
@@ -180,6 +206,12 @@ Open a separate terminal and run:
 ```bash
 azurite --silent --location /tmp/azurite --debug /tmp/azurite/debug.log
 ```
+
+> **macOS note:** `/tmp` on macOS is a symlink to `/private/tmp`. The command above works as-is, but if you prefer a persistent directory you can use `~/azurite` instead:
+> ```bash
+> mkdir -p ~/azurite
+> azurite --silent --location ~/azurite --debug ~/azurite/debug.log
+> ```
 
 Azurite listens on:
 - Blob: `http://127.0.0.1:10000`
@@ -377,6 +409,8 @@ Azurite is not running.  Start it:
 ```bash
 azurite --silent --location /tmp/azurite
 ```
+
+> **macOS:** Use `~/azurite` if you prefer a persistent directory (see [Step 3](#step-3--start-the-azurite-storage-emulator)).
 
 ### HTTP 403 when writing to table storage (Azure)
 
