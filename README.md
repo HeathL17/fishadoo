@@ -68,7 +68,8 @@ fishadoo/
 │       └── deploy.yml          # CD: deploy infrastructure + function app to Azure
 ├── infra/
 │   ├── main.bicep              # Azure infrastructure as code
-│   └── main.parameters.example.json
+│   ├── main.parameters.example.json
+│   └── setup-azure-identity.sh # One-time script: create Entra ID app + federated credential
 ├── shared/
 │   ├── __init__.py
 │   ├── config_loader.py        # Reads & validates config.json
@@ -323,33 +324,21 @@ az group create --name fishadoo-rg --location eastus
 
 Create a **Microsoft Entra ID** application with a **federated credential** so GitHub Actions can authenticate to Azure without storing a password or client secret.
 
+Run the provided setup script (requires Azure CLI 2.50+ and `jq`):
+
 ```bash
-# 1. Create an app registration
-az ad app create --display-name "fishadoo-github-deploy"
-
-# 2. Note the appId, then create a service principal
-APP_ID="<appId from previous command>"
-az ad sp create --id "$APP_ID"
-
-# 3. Assign Contributor on the resource group
-SUBSCRIPTION_ID=$(az account show --query id -o tsv)
-az role assignment create \
-  --assignee "$APP_ID" \
-  --role Contributor \
-  --scope "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/fishadoo-rg"
-
-# 4. Add a federated credential for the production environment
-#    Write to a file to avoid shell JSON-parsing issues on macOS
-cat > /tmp/fishadoo-fedcred.json << 'EOF'
-{
-  "name": "fishadoo-production",
-  "issuer": "https://token.actions.githubusercontent.com",
-  "subject": "repo:<your-github-username>/<your-repo-name>:environment:production",
-  "audiences": ["api://AzureADTokenExchange"]
-}
-EOF
-az ad app federated-credential create --id "$APP_ID" --parameters /tmp/fishadoo-fedcred.json
+chmod +x infra/setup-azure-identity.sh
+./infra/setup-azure-identity.sh
 ```
+
+The script is idempotent – re-running it safely skips steps that are already complete.  It:
+
+1. Creates (or re-uses) the `fishadoo-github-deploy` app registration and service principal.
+2. Assigns the **Contributor** role on the `fishadoo-rg` resource group.
+3. Adds a federated credential whose subject matches the `environment: production` declaration in `deploy.yml` (`repo:HeathL17/fishadoo:environment:production`).  The credential JSON is written to a temp file before being passed to the Azure CLI, which avoids JSON-parsing failures caused by macOS shell control-character injection.
+4. Prints the values you need to copy into GitHub Secrets (see Step 3 below).
+
+> **Note:** If you are deploying to a different GitHub org/repo or resource group, edit the configuration variables at the top of `infra/setup-azure-identity.sh` before running it.
 
 ### Step 3 – Add GitHub secrets and variables
 
@@ -357,9 +346,9 @@ In your GitHub repository go to **Settings → Secrets and variables → Actions
 
 | Type | Name | Value |
 |---|---|---|
-| Secret | `AZURE_CLIENT_ID` | `appId` from Step 2 |
-| Secret | `AZURE_TENANT_ID` | `tenantId` from Step 2 |
-| Secret | `AZURE_SUBSCRIPTION_ID` | Your Azure subscription ID |
+| Secret | `AZURE_CLIENT_ID` | `appId` printed by the script |
+| Secret | `AZURE_TENANT_ID` | `tenantId` printed by the script |
+| Secret | `AZURE_SUBSCRIPTION_ID` | `subscriptionId` printed by the script |
 | Variable | `AZURE_RESOURCE_GROUP` | `fishadoo-rg` (or your chosen name) |
 
 ### Step 4 – (Optional) customise deployment parameters
@@ -467,6 +456,17 @@ az storage entity query \
 | No invocations in Monitor | `SCHEDULE` setting is invalid | Verify the CRON format (6 fields, seconds first) |
 | `past_due` warning in logs | Function App was scaled down or throttled | Check the Consumption plan quotas; consider Premium plan |
 | Function App not starting | Missing `AzureWebJobsStorage` | Ensure the storage account setting is correct |
+
+### Deploy workflow fails with `AADSTS700213`
+
+```
+AADSTS700213: No matching federated identity record found for presented assertion
+subject 'repo:HeathL17/fishadoo:environment:production'.
+```
+
+The Azure federated credential has not been created, or it was created with the wrong subject.  The `deploy.yml` workflow runs under `environment: production`, so the OIDC subject claim is always `repo:<org>/<repo>:environment:production`.
+
+**Fix:** Run `infra/setup-azure-identity.sh` (see [Step 2 of Deployment to Azure](#step-2--configure-an-azure-identity-for-github-actions)).  The script creates the credential with the correct subject and is safe to re-run if the credential already exists with a wrong subject.
 
 ### `TABLE_ACCOUNT_NAME` / `TABLE_CONNECTION_STRING` not set
 
