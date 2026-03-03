@@ -64,7 +64,8 @@ A personal data-gathering hub built on Azure Functions and Python.  This is the 
 fishadoo/
 ├── .github/
 │   └── workflows/
-│       └── ci.yml              # CI: lint + test on every push / PR
+│       ├── ci.yml              # CI: lint + test on every push / PR
+│       └── deploy.yml          # CD: deploy infrastructure + function app to Azure
 ├── infra/
 │   ├── main.bicep              # Azure infrastructure as code
 │   └── main.parameters.example.json
@@ -96,8 +97,7 @@ fishadoo/
 | [Homebrew](https://brew.sh) | latest | macOS package manager (macOS only) |
 | [Azure Functions Core Tools](https://learn.microsoft.com/azure/azure-functions/functions-run-local) | v4 | Local function host |
 | [Azurite](https://learn.microsoft.com/azure/storage/common/storage-use-azurite) | 3.x | Local Storage emulator |
-| [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) | 2.50+ | Deployment |
-| [Bicep CLI](https://learn.microsoft.com/azure/azure-resource-manager/bicep/install) | 0.24+ | IaC deployment |
+| [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) | 2.50+ | One-time identity setup (see [Deployment](#deployment-to-azure)) |
 
 ### Installing prerequisites on macOS
 
@@ -307,32 +307,72 @@ az login   # sign in once with the Azure CLI
 
 ## Deployment to Azure
 
-### Step 1 – Log in to Azure
+Deployment is handled exclusively via the **Deploy** GitHub Actions workflow (`.github/workflows/deploy.yml`).  It runs automatically on every push to `main` and can also be triggered manually via `workflow_dispatch`.
+
+### Step 1 – Create an Azure resource group
+
+Before the first run, create the resource group once (this step is only needed once):
 
 ```bash
 az login
 az account set --subscription "<your-subscription-id>"
+az group create --name fishadoo-rg --location eastus
 ```
 
-### Step 2 – Create a Resource Group
+### Step 2 – Configure an Azure identity for GitHub Actions
+
+Create a **Microsoft Entra ID** application with a **federated credential** so GitHub Actions can authenticate to Azure without storing a password or client secret.
 
 ```bash
-az group create \
-  --name fishadoo-rg \
-  --location eastus
+# 1. Create an app registration
+az ad app create --display-name "fishadoo-github-deploy"
+
+# 2. Note the appId, then create a service principal
+APP_ID="<appId from previous command>"
+az ad sp create --id "$APP_ID"
+
+# 3. Assign Contributor on the resource group
+SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+az role assignment create \
+  --assignee "$APP_ID" \
+  --role Contributor \
+  --scope "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/fishadoo-rg"
+
+# 4. Add a federated credential for the main branch
+TENANT_ID=$(az account show --query tenantId -o tsv)
+az ad app federated-credential create --id "$APP_ID" --parameters '{
+  "name": "fishadoo-main",
+  "issuer": "https://token.actions.githubusercontent.com",
+  "subject": "repo:<your-github-username>/<your-repo-name>:ref:refs/heads/main",
+  "audiences": ["api://AzureADTokenExchange"]
+}'
 ```
 
-### Step 3 – Deploy the infrastructure
+### Step 3 – Add GitHub secrets and variables
+
+In your GitHub repository go to **Settings → Secrets and variables → Actions** and add:
+
+| Type | Name | Value |
+|---|---|---|
+| Secret | `AZURE_CLIENT_ID` | `appId` from Step 2 |
+| Secret | `AZURE_TENANT_ID` | `tenantId` from Step 2 |
+| Secret | `AZURE_SUBSCRIPTION_ID` | Your Azure subscription ID |
+| Variable | `AZURE_RESOURCE_GROUP` | `fishadoo-rg` (or your chosen name) |
+
+### Step 4 – (Optional) customise deployment parameters
+
+Edit `infra/main.parameters.example.json` to adjust the base name, region, schedule, or Python version before pushing.  The file contains no secrets and is used directly by the Deploy workflow, so commit your edits alongside the code.
+
+### Step 5 – Push to `main` to deploy
 
 ```bash
-cp infra/main.parameters.example.json infra/main.parameters.json
-# Edit infra/main.parameters.json to customise names / schedule / region.
-
-az deployment group create \
-  --resource-group fishadoo-rg \
-  --template-file infra/main.bicep \
-  --parameters @infra/main.parameters.json
+git push origin main
 ```
+
+The **Deploy** workflow will:
+1. Authenticate to Azure using the federated identity
+2. Deploy (or update) all Azure infrastructure via Bicep
+3. Package and publish the Python function app code
 
 The deployment creates:
 - Storage Account (houses Function App state **and** the `RandomStrings` table)
@@ -341,19 +381,9 @@ The deployment creates:
 - Function App with a **system-assigned managed identity**
 - RBAC role assignment (Storage Table Data Contributor) on the Storage Account
 
-### Step 4 – Publish the function code
+You can also trigger a deployment manually: **Actions → Deploy → Run workflow**.
 
-```bash
-FUNCTION_APP_NAME=$(az deployment group show \
-  --resource-group fishadoo-rg \
-  --name main \
-  --query properties.outputs.functionAppName.value \
-  --output tsv)
-
-func azure functionapp publish "$FUNCTION_APP_NAME" --python
-```
-
-### Step 5 – Verify in the Azure Portal
+### Step 6 – Verify in the Azure Portal
 
 1. Go to the Function App → **Functions** → `random_string_writer`.
 2. Click **Monitor** to see recent executions.
@@ -384,13 +414,14 @@ python -m pytest tests/test_string_generator.py -v
 ### Changing the schedule
 
 1. Edit `config.json` → update `schedule` (for documentation).
-2. Update the `SCHEDULE` app setting in the Azure portal (or re-run the Bicep deployment with the new `schedule` parameter).
-3. The change takes effect on the next Function App restart (usually within seconds).
+2. Edit `infra/main.parameters.example.json` → update the `schedule` parameter value.
+3. Commit and push to `main` – the Deploy workflow re-runs the Bicep template with the new schedule, which updates the `SCHEDULE` app setting automatically.
+4. The change takes effect on the next Function App restart (usually within seconds).
 
 ### Changing the seed or string configuration
 
 1. Edit `config.json`.
-2. Commit and re-deploy with `func azure functionapp publish`.
+2. Commit and push to `main` – the Deploy workflow re-packages and publishes the function automatically.
 
 ### Viewing logs in Azure
 
@@ -468,11 +499,7 @@ az role assignment list \
 
 ### Stale config after deploying
 
-The function loads `config.json` at each invocation, but the file must be included in the deployment package.  If you changed `config.json` locally, re-run:
-
-```bash
-func azure functionapp publish "$FUNCTION_APP_NAME" --python
-```
+The function loads `config.json` at each invocation, but the file must be included in the deployment package.  If you changed `config.json` locally, commit and push to `main` to trigger a new Deploy workflow run.
 
 ### Enabling debug logging locally
 
@@ -496,6 +523,7 @@ Then restart `func start`.
 | No secrets in app settings (Azure) | Function App uses `TABLE_ACCOUNT_NAME` + managed identity; `TABLE_CONNECTION_STRING` is never stored in Azure app settings |
 | Managed Identity in Azure | Function App accesses Table Storage via its system-assigned managed identity (Storage Table Data Contributor role); no shared keys or connection strings in Azure |
 | `DefaultAzureCredential` in code | Supports managed identity (Azure), `az login` (local real-account dev), and environment credentials transparently |
+| Passwordless CI/CD | GitHub Actions authenticates to Azure via OIDC federated credentials; no client secrets or passwords are stored as GitHub secrets |
 | TLS 1.2 minimum | Enforced on Storage Account and Function App in Bicep |
 | HTTPS-only Function App | `httpsOnly: true` in Bicep |
 | No public blob access | `allowBlobPublicAccess: false` on Storage Account |
