@@ -506,42 +506,6 @@ az role assignment list \
   --scope "/subscriptions/<sub-id>/resourceGroups/fishadoo-rg/providers/Microsoft.Storage/storageAccounts/<storage-name>"
 ```
 
-### `AADSTS700213`: No matching federated identity record found
-
-```
-AADSTS700213: No matching federated identity record found for presented assertion subject
-'repo:HeathL17/fishadoo:environment:production'
-```
-
-**Root cause:** The `deploy.yml` workflow sets `environment: production` on the deploy job.  When GitHub Actions runs a job scoped to a named environment it issues an OIDC token whose **subject** is:
-
-```
-repo:<owner>/<repo>:environment:<environment-name>
-```
-
-This is different from the branch-based subject (`repo:<owner>/<repo>:ref:refs/heads/main`) that GitHub generates when **no** environment is used.  If your Azure federated identity credential was created with the branch-based subject it will not match and Azure will reject the login.
-
-**Fix:** Create (or update) the federated credential in Azure Entra ID so that its **Subject** field is:
-
-```
-repo:<your-github-username>/<your-repo-name>:environment:production
-```
-
-Run the following command (replace `$APP_ID` with your app registration's `appId`):
-
-```bash
-az ad app federated-credential create --id "$APP_ID" --parameters '{
-  "name": "fishadoo-production",
-  "issuer": "https://token.actions.githubusercontent.com",
-  "subject": "repo:<your-github-username>/<your-repo-name>:environment:production",
-  "audiences": ["api://AzureADTokenExchange"]
-}'
-```
-
-If you previously created a credential with a branch-based subject (`ref:refs/heads/main`) you can either delete it or leave it alongside the new environment-scoped one – Azure supports multiple federated credentials per app registration.
-
-> **Reference:** [GitHub OIDC subject claim formats](https://docs.github.com/en/actions/security-for-github-actions/security-hardening-your-deployments/about-security-hardening-with-openid-connect#understanding-the-oidc-token) | [AADSTS700213 troubleshooting](https://learn.microsoft.com/entra/workload-id/workload-identity-federation)
-
 ### Stale config after deploying
 
 The function loads `config.json` at each invocation, but the file must be included in the deployment package.  If you changed `config.json` locally, commit and push to `main` to trigger a new Deploy workflow run.
